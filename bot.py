@@ -55,19 +55,22 @@ async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_chann
 
 
 async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
-    transport = FastAPIWebsocketTransport(
-        websocket=websocket_client,
-        params=FastAPIWebsocketParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-            add_wav_header=False,
-            vad_enabled=True,
-           vad_analyzer=SileroVADAnalyzer(
-    min_speech_duration_ms=50,    # Más sensible a voz corta
-    min_silence_duration_ms=300,  # Menos tiempo de silencio requerido
-    speech_pad_ms=100            # Padding alrededor de la voz
-),
-    )
+transport = FastAPIWebsocketTransport(
+    websocket=websocket_client,
+    params=FastAPIWebsocketParams(
+        audio_in_enabled=True,
+        audio_out_enabled=True,
+        add_wav_header=False,
+        vad_enabled=True,
+        vad_analyzer=SileroVADAnalyzer(
+            min_speech_duration_ms=50,
+            min_silence_duration_ms=300,
+            speech_pad_ms=100
+        ),
+        vad_audio_passthrough=True,
+        serializer=TwilioFrameSerializer(stream_sid),
+    ),
+)
 
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
 
