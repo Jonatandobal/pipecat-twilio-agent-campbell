@@ -55,22 +55,22 @@ async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_chann
 
 
 async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
-        transport = FastAPIWebsocketTransport(
-            websocket=websocket_client,
-            params=FastAPIWebsocketParams(
+    transport = FastAPIWebsocketTransport(
+        websocket=websocket_client,
+        params=FastAPIWebsocketParams(
             audio_in_enabled=True,
             audio_out_enabled=True,
             add_wav_header=False,
             vad_enabled=True,
             vad_analyzer=SileroVADAnalyzer(
-            min_speech_duration_ms=50,
-            min_silence_duration_ms=300,
-            speech_pad_ms=100
+                min_speech_duration_ms=50,
+                min_silence_duration_ms=300,
+                speech_pad_ms=100
+            ),
+            vad_audio_passthrough=True,
+            serializer=TwilioFrameSerializer(stream_sid),
         ),
-        vad_audio_passthrough=True,
-        serializer=TwilioFrameSerializer(stream_sid),
-    ),
-)
+    )
 
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o")
 
@@ -84,9 +84,9 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     messages = [
         {
             "role": "system",
-            "content": "Eres Juan, asesora de facturación eléctrica. Hablas español profesional y empático. Tu trabajo es verificar datos del cliente Pedro Martinez Garcia de Madrid para actualizar su convenio eléctrico. No vendes nada, solo actualizas información. Mantén respuestas cortas y claras."
-        }
-            ]
+            "content": "Eres Juan, asesor de facturación eléctrica. Hablas español profesional y empático. Tu trabajo es verificar datos del cliente Pedro Martinez Garcia de Madrid para actualizar su convenio eléctrico. No vendes nada, solo actualizas información. Mantén respuestas cortas y claras.",
+        },
+    ]
 
     context = OpenAILLMContext(messages)
     context_aggregator = llm.create_context_aggregator(context)
