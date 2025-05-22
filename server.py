@@ -10,7 +10,7 @@ import json
 import uvicorn
 from bot import run_bot
 from fastapi import FastAPI, WebSocket
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.responses import HTMLResponse
 
 app = FastAPI()
@@ -24,11 +24,14 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+async def health_check():
+    return {"status": "ok", "message": "Pipecat Twilio Agent is running"}
+
 @app.post("/")
 async def start_call():
     print("POST TwiML")
     return HTMLResponse(content=open("templates/streams.xml").read(), media_type="application/xml")
-
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
