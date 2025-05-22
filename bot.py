@@ -62,11 +62,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             audio_out_enabled=True,
             add_wav_header=False,
             vad_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(
-                min_speech_duration_ms=50,
-                min_silence_duration_ms=300,
-                speech_pad_ms=100
-            ),
+            vad_analyzer=SileroVADAnalyzer(),
             vad_audio_passthrough=True,
             serializer=TwilioFrameSerializer(stream_sid),
         ),
@@ -91,19 +87,17 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     context = OpenAILLMContext(messages)
     context_aggregator = llm.create_context_aggregator(context)
 
-    # NOTE: Watch out! This will save all the conversation in memory. You can
-    # pass `buffer_size` to get periodic callbacks.
     audiobuffer = AudioBufferProcessor(user_continuous_stream=not testing)
 
     pipeline = Pipeline(
         [
-            transport.input(),  # Websocket input from client
-            stt,  # Speech-To-Text
+            transport.input(),
+            stt,
             context_aggregator.user(),
-            llm,  # LLM
-            tts,  # Text-To-Speech
-            transport.output(),  # Websocket output to client
-            audiobuffer,  # Used to buffer the audio in the pipeline
+            llm,
+            tts,
+            transport.output(),
+            audiobuffer,
             context_aggregator.assistant(),
         ]
     )
@@ -119,9 +113,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
 
     @transport.event_handler("on_client_connected")
     async def on_client_connected(transport, client):
-        # Start recording.
         await audiobuffer.start_recording()
-        # Kick off the conversation.
         messages.append({"role": "system", "content": "Please introduce yourself to the user."})
         await task.queue_frames([context_aggregator.user().get_context_frame()])
 
@@ -134,10 +126,6 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         server_name = f"server_{websocket_client.client.port}"
         await save_audio(server_name, audio, sample_rate, num_channels)
 
-    # We use `handle_sigint=False` because `uvicorn` is controlling keyboard
-    # interruptions. We use `force_gc=True` to force garbage collection after
-    # the runner finishes running a task which could be useful for long running
-    # applications with multiple clients connecting.
     runner = PipelineRunner(handle_sigint=False, force_gc=True)
 
     await runner.run(task)
