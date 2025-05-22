@@ -3,14 +3,13 @@
 #
 # SPDX-License-Identifier: BSD 2-Clause License
 #
-
 import argparse
 import json
-
 import uvicorn
 from bot import run_bot
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
 
 app = FastAPI()
@@ -22,7 +21,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.get("/")
 async def health_check():
@@ -44,14 +42,11 @@ async def websocket_endpoint(websocket: WebSocket):
     print("WebSocket connection accepted")
     await run_bot(websocket, stream_sid, app.state.testing)
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Pipecat Twilio Chatbot Server")
     parser.add_argument(
         "-t", "--test", action="store_true", default=False, help="set the server in testing mode"
     )
-    args, _ = parser.parse_known_args()
-
+    args, *_ = parser.parse_known_args()
     app.state.testing = args.test
-
     uvicorn.run(app, host="0.0.0.0", port=8765)
