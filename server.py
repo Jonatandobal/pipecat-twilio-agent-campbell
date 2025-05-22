@@ -5,6 +5,7 @@
 #
 import argparse
 import json
+import os
 import uvicorn
 from bot import run_bot
 from fastapi import FastAPI, WebSocket
@@ -49,4 +50,8 @@ if __name__ == "__main__":
     )
     args, *_ = parser.parse_known_args()
     app.state.testing = args.test
-    uvicorn.run(app, host="0.0.0.0", port=8765)
+    
+    # Use Railway's PORT environment variable or default to 8765
+    port = int(os.environ.get("PORT", 8765))
+    
+    uvicorn.run(app, host="0.0.0.0", port=port)
