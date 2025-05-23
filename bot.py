@@ -23,7 +23,7 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
-from pipecat.services.openai.stt import OpenAISTTService
+from pipecat.services.deepgram.stt import DeepgramSTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.network.fastapi_websocket import (
     FastAPIWebsocketParams,
@@ -68,7 +68,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
                 audio_out_enabled=True,
                 add_wav_header=False,
                 vad_enabled=True,
-                vad_analyzer=SileroVADAnalyzer(),  # Sin parámetros adicionales
+                vad_analyzer=SileroVADAnalyzer(),
                 vad_audio_passthrough=True,
                 serializer=TwilioFrameSerializer(stream_sid),
             ),
@@ -81,11 +81,12 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             temperature=0.7,
         )
 
-        # Configuración de STT para español
-        stt = OpenAISTTService(
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model="whisper-1",
+        # Configuración de Deepgram STT para español
+        stt = DeepgramSTTService(
+            api_key=os.getenv("DEEPGRAM_API_KEY"),
             language="es",
+            model="nova-2",
+            audio_passthrough=True,
         )
 
         # Configuración de TTS
@@ -170,12 +171,12 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             server_name = f"server_{websocket_client.client.port}"
             await save_audio(server_name, audio, sample_rate, num_channels)
 
-        # Manejadores de eventos para depuración
+        # Manejador de eventos para depuración de Deepgram STT
         @stt.event_handler("on_transcription")
         async def on_transcription(service, text, metadata=None):
-            logger.info(f"Transcripción STT: {text}")
+            logger.info(f"Transcripción Deepgram: {text}")
             if metadata:
-                logger.debug(f"Metadata STT: {metadata}")
+                logger.debug(f"Metadata Deepgram: {metadata}")
 
         @llm.event_handler("on_response")
         async def on_llm_response(service, response):
