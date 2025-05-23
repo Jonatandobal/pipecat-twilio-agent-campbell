@@ -23,7 +23,7 @@ from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
 from pipecat.processors.audio.audio_buffer_processor import AudioBufferProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
 from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
-from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.network.fastapi_websocket import (
     FastAPIWebsocketParams,
@@ -69,9 +69,9 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
 
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o-mini")
 
-    stt = DeepgramSTTService(
-        api_key=os.getenv("DEEPGRAM_API_KEY"), 
-        audio_passthrough=True,
+    stt = OpenAISTTService(
+        api_key=os.getenv("OPENAI_API_KEY"),
+        model="whisper-1",
         language="es"
     )
 
