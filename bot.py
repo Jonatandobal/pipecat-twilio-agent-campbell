@@ -1,4 +1,4 @@
-
+#
 # Copyright (c) 2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
@@ -32,10 +32,10 @@ from pipecat.transports.network.fastapi_websocket import (
 
 load_dotenv(override=True)
 
-# Configuración de logging más detallada para depuración
+# Configuración de logging
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
-logger.add("pipecat_debug.log", rotation="10 MB", level="DEBUG")  # Archivo de log adicional
+logger.add("pipecat_debug.log", rotation="10 MB", level="DEBUG")
 
 
 async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_channels: int):
@@ -60,41 +60,43 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     try:
         logger.info(f"Iniciando sesión con stream_sid: {stream_sid}")
         
+        # Configuración del transporte siguiendo el ejemplo funcional
         transport = FastAPIWebsocketTransport(
             websocket=websocket_client,
             params=FastAPIWebsocketParams(
                 audio_in_enabled=True,
                 audio_out_enabled=True,
                 add_wav_header=False,
-                # Eliminamos los parámetros deprecados de VAD
+                vad_enabled=True,
+                vad_analyzer=SileroVADAnalyzer(),  # Sin parámetros adicionales
+                vad_audio_passthrough=True,
                 serializer=TwilioFrameSerializer(stream_sid),
             ),
         )
 
-        # Configuración del modelo LLM con instrucciones explícitas para español
+        # Configuración del modelo LLM
         llm = OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"), 
             model="gpt-4o-mini",
-            temperature=0.7,  # Ajustamos temperatura para respuestas más naturales
+            temperature=0.7,
         )
 
-        # Configuración explícita de STT para español
+        # Configuración de STT para español
         stt = OpenAISTTService(
             api_key=os.getenv("OPENAI_API_KEY"),
             model="whisper-1",
             language="es",
-            response_format="verbose_json",  # Formato detallado para mejor depuración
         )
 
-        # Configuración de TTS con instrucciones para español
+        # Configuración de TTS
         tts = ElevenLabsTTSService(
             api_key=os.getenv("ELEVEN_API_KEY"),
             voice_id=os.getenv("ELEVEN_VOICE_ID"),
             model_id="eleven_multilingual_v2",  # Modelo multilingüe para mejor español
-            optimize_streaming_latency=4,  # Optimización para latencia
+            optimize_streaming_latency=4,
         )
 
-        # Mensajes del sistema mejorados para conversación en español
+        # Mensajes del sistema en español
         messages = [
             {
                 "role": "system",
@@ -118,18 +120,10 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
 
         audiobuffer = AudioBufferProcessor(user_continuous_stream=not testing)
 
-        # Configuración correcta del analizador VAD para Silero
-        # Nota: SileroVADAnalyzer no acepta 'threshold' como parámetro
-        vad_analyzer = SileroVADAnalyzer(
-            sampling_rate=8000,
-            min_speech_duration_ms=250,
-            min_silence_duration_ms=500,
-        )
-
+        # Configuración del pipeline siguiendo el ejemplo funcional
         pipeline = Pipeline(
             [
                 transport.input(),
-                vad_analyzer,  # Añadimos el analizador VAD correctamente configurado
                 stt,
                 context_aggregator.user(),
                 llm,
@@ -176,19 +170,17 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             server_name = f"server_{websocket_client.client.port}"
             await save_audio(server_name, audio, sample_rate, num_channels)
 
-        # Manejador de eventos para depuración de STT
+        # Manejadores de eventos para depuración
         @stt.event_handler("on_transcription")
         async def on_transcription(service, text, metadata=None):
             logger.info(f"Transcripción STT: {text}")
             if metadata:
                 logger.debug(f"Metadata STT: {metadata}")
 
-        # Manejador de eventos para depuración de LLM
         @llm.event_handler("on_response")
         async def on_llm_response(service, response):
             logger.info(f"Respuesta LLM: {response}")
 
-        # Manejador de eventos para depuración de TTS
         @tts.event_handler("on_audio")
         async def on_tts_audio(service, audio_data):
             logger.info(f"Audio TTS generado: {len(audio_data)} bytes")
