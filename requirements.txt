@@ -1,7 +1,5 @@
-pipecat-ai[elevenlabs,openai,silero,deepgram,cartesia,twilio]
+pipecat-ai[elevenlabs,openai,silero,deepgram]
 fastapi
 uvicorn
 python-dotenv
 loguru
-twilio>=7.0.0
-aiofiles
