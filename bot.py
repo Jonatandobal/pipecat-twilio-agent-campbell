@@ -1,183 +1,128 @@
-"""Twilio + Daily voice bot implementation."""
-
-import argparse
-import asyncio
 import os
 import sys
-
-from dotenv import load_dotenv
+import json
 from loguru import logger
-from twilio.rest import Client
+from fastapi import WebSocket
 
-from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import LLMMessagesFrame, EndFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.services.cartesia.tts import CartesiaTTSService
-from pipecat.services.openai.llm import OpenAILLMService
-from pipecat.transports.services.daily import DailyParams, DailyTransport
+from pipecat.services.openai import OpenAILLMService
+from pipecat.services.deepgram import DeepgramSTTService
+from pipecat.services.elevenlabs import ElevenLabsTTSService
+from pipecat.vad.silero import SileroVADAnalyzer
 
-# Setup logging
-load_dotenv()
+# ESTO ES LO IMPORTANTE: Usar FastAPI WebSocket Transport en lugar de Daily
+from pipecat.transports.network.fastapi_websocket import (
+    FastAPIWebsocketTransport,
+    FastAPIWebsocketParams,
+)
+from pipecat.serializers.twilio import TwilioFrameSerializer
+
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 
-# Initialize Twilio client
-twilio_client = Client(os.getenv("TWILIO_ACCOUNT_SID"), os.getenv("TWILIO_AUTH_TOKEN"))
-
-
-async def run_bot(room_url: str, token: str, call_id: str, sip_uri: str) -> None:
-    """Run the voice bot with the given parameters.
-
-    Args:
-        room_url: The Daily room URL
-        token: The Daily room token
-        call_id: The Twilio call ID
-        sip_uri: The Daily SIP URI for forwarding the call
+async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     """
-    logger.info(f"Starting bot with room: {room_url}")
-    logger.info(f"SIP endpoint: {sip_uri}")
+    Función principal que ejecuta el bot de voz para Twilio
+    """
+    try:
+        # Inicializar el serializador de Twilio con el stream SID
+        serializer = TwilioFrameSerializer(
+            stream_sid=stream_sid,
+        )
 
-    call_already_forwarded = False
-
-    # Setup the Daily transport
-    transport = DailyTransport(
-        room_url,
-        token,
-        "Phone Bot",
-        DailyParams(
-            audio_in_enabled=True,
-            audio_out_enabled=True,
-            transcription_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
-        ),
-    )
-
-    # Setup TTS service
-    tts = CartesiaTTSService(
-        api_key=os.getenv("CARTESIA_API_KEY"),
-        voice_id="71a7ad14-091c-4e8e-a314-022ece01c121",  # British Reading Lady
-    )
-
-    # Setup LLM service
-    llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"))
-
-    # Initialize LLM context with system prompt
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a friendly phone assistant. Your responses will be read aloud, "
-                "so keep them concise and conversational. Avoid special characters or "
-                "formatting. Begin by greeting the caller and asking how you can help them today."
+        # Crear el transporte WebSocket de FastAPI
+        transport = FastAPIWebsocketTransport(
+            websocket=websocket_client,
+            params=FastAPIWebsocketParams(
+                audio_in_enabled=True,
+                audio_out_enabled=True,
+                add_wav_header=False,
+                vad_analyzer=SileroVADAnalyzer(),
+                serializer=serializer,
             ),
-        },
-    ]
+        )
 
-    # Setup the conversational context
-    context = OpenAILLMContext(messages)
-    context_aggregator = llm.create_context_aggregator(context)
+        # Inicializar servicios de IA
+        llm = OpenAILLMService(
+            api_key=os.getenv("OPENAI_API_KEY"),
+            model="gpt-4o-mini"
+        )
 
-    # Build the pipeline
-    pipeline = Pipeline(
-        [
-            transport.input(),
-            context_aggregator.user(),
-            llm,
-            tts,
-            transport.output(),
-            context_aggregator.assistant(),
+        stt = DeepgramSTTService(
+            api_key=os.getenv("DEEPGRAM_API_KEY"),
+            audio_passthrough=True
+        )
+
+        tts = ElevenLabsTTSService(
+            api_key=os.getenv("ELEVEN_API_KEY"),
+            voice_id=os.getenv("ELEVEN_VOICE_ID", "pNInz6obpgDQGcFmaJgB"),  # Adam voice por defecto
+        )
+
+        # Crear el contexto inicial de la conversación
+        messages = [
+            {
+                "role": "system",
+                "content": """You are Tasha, a helpful AI assistant. You are speaking on a phone call.
+                
+                Keep your responses:
+                - Conversational and natural
+                - Brief and to the point
+                - Friendly and professional
+                
+                You can help with general questions, provide information, and have casual conversations.
+                Remember you're on a phone call, so speak clearly and don't use special formatting.""",
+            },
         ]
-    )
 
-    # Create the pipeline task
-    task = PipelineTask(
-        pipeline,
-        params=PipelineParams(
-            allow_interruptions=True  # Enable barge-in so callers can interrupt the bot
-        ),
-    )
+        context = OpenAILLMContext(messages)
+        context_aggregator = llm.create_context_aggregator(context)
 
-    # Handle participant joining
-    @transport.event_handler("on_first_participant_joined")
-    async def on_first_participant_joined(transport, participant):
-        logger.info(f"First participant joined: {participant['id']}")
-        await transport.capture_participant_transcription(participant["id"])
-        await task.queue_frames([context_aggregator.user().get_context_frame()])
+        # Crear el pipeline
+        pipeline = Pipeline([
+            transport.input(),  # Audio de entrada de Twilio
+            stt,                # Speech-to-text (Deepgram)
+            context_aggregator.user(),  # Agregar mensaje del usuario al contexto
+            llm,                # LLM (OpenAI)
+            tts,                # Text-to-speech (ElevenLabs)
+            transport.output(), # Audio de salida a Twilio
+            context_aggregator.assistant(),  # Agregar respuesta del asistente al contexto
+        ])
 
-    # Handle participant leaving
-    @transport.event_handler("on_participant_left")
-    async def on_participant_left(transport, participant, reason):
-        logger.info(f"Participant left: {participant['id']}, reason: {reason}")
-        await task.cancel()
+        # Configurar manejadores de eventos
+        @transport.event_handler("on_client_connected")
+        async def on_client_connected(transport, client):
+            logger.info("Client connected to Twilio bot")
+            # Enviar mensaje de bienvenida
+            messages = [
+                {
+                    "role": "system",
+                    "content": "The user just connected. Greet them as Tasha and ask how you can help them today."
+                }
+            ]
+            await task.queue_frames([LLMMessagesFrame(messages)])
 
-    # Handle call ready to forward
-    @transport.event_handler("on_dialin_ready")
-    async def on_dialin_ready(transport, cdata):
-        nonlocal call_already_forwarded
+        @transport.event_handler("on_client_disconnected")
+        async def on_client_disconnected(transport, client):
+            logger.info("Client disconnected from Twilio bot")
+            await task.queue_frames([EndFrame()])
 
-        # We only want to forward the call once
-        # The on_dialin_ready event will be triggered for each sip endpoint provisioned
-        if call_already_forwarded:
-            logger.warning("Call already forwarded, ignoring this event.")
-            return
+        # Crear y ejecutar la tarea del pipeline
+        task = PipelineTask(
+            pipeline,
+            params=PipelineParams(
+                allow_interruptions=True,
+                enable_metrics=True,
+                enable_usage_metrics=True,
+            ),
+        )
 
-        logger.info(f"Forwarding call {call_id} to {sip_uri}")
+        logger.info("Starting Twilio bot pipeline")
+        await PipelineRunner().run(task)
 
-        try:
-            # Update the Twilio call with TwiML to forward to the Daily SIP endpoint
-            twilio_client.calls(call_id).update(
-                twiml=f"<Response><Dial><Sip>{sip_uri}</Sip></Dial></Response>"
-            )
-            logger.info("Call forwarded successfully")
-            call_already_forwarded = True
-        except Exception as e:
-            logger.error(f"Failed to forward call: {str(e)}")
-            raise
-
-    @transport.event_handler("on_dialin_connected")
-    async def on_dialin_connected(transport, data):
-        logger.debug(f"Dial-in connected: {data}")
-
-    @transport.event_handler("on_dialin_stopped")
-    async def on_dialin_stopped(transport, data):
-        logger.debug(f"Dial-in stopped: {data}")
-
-    @transport.event_handler("on_dialin_error")
-    async def on_dialin_error(transport, data):
-        logger.error(f"Dial-in error: {data}")
-        # If there is an error, the bot should leave the call
-        # This may be also handled in on_participant_left with
-        # await task.cancel()
-
-    @transport.event_handler("on_dialin_warning")
-    async def on_dialin_warning(transport, data):
-        logger.warning(f"Dial-in warning: {data}")
-
-    # Run the pipeline
-    runner = PipelineRunner()
-    await runner.run(task)
-
-
-async def main():
-    """Parse command line arguments and run the bot."""
-    parser = argparse.ArgumentParser(description="Daily + Twilio Voice Bot")
-    parser.add_argument("-u", type=str, required=True, help="Daily room URL")
-    parser.add_argument("-t", type=str, required=True, help="Daily room token")
-    parser.add_argument("-i", type=str, required=True, help="Twilio call ID")
-    parser.add_argument("-s", type=str, required=True, help="Daily SIP URI")
-
-    args = parser.parse_args()
-
-    # Validate required arguments
-    if not all([args.u, args.t, args.i, args.s]):
-        logger.error("All arguments (-u, -t, -i, -s) are required")
-        parser.print_help()
-        sys.exit(1)
-
-    await run_bot(args.u, args.t, args.i, args.s)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    except Exception as e:
+        logger.error(f"Error in run_bot: {str(e)}", exc_info=True)
+        raise
