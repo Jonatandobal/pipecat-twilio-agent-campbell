@@ -9,10 +9,12 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
 from pipecat.processors.aggregators.openai_llm_context import OpenAILLMContext
-from pipecat.services.openai import OpenAILLMService
-from pipecat.services.deepgram import DeepgramSTTService
-from pipecat.services.elevenlabs import ElevenLabsTTSService
-from pipecat.vad.silero import SileroVADAnalyzer
+
+# Importaciones actualizadas para Pipecat 0.0.67
+from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.deepgram.stt import DeepgramSTTService
+from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+from pipecat.audio.vad.silero import SileroVADAnalyzer
 
 # ESTO ES LO IMPORTANTE: Usar FastAPI WebSocket Transport en lugar de Daily
 from pipecat.transports.network.fastapi_websocket import (
