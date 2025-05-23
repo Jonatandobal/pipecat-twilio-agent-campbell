@@ -1,4 +1,4 @@
-#
+
 # Copyright (c) 2025, Daily
 #
 # SPDX-License-Identifier: BSD 2-Clause License
@@ -66,8 +66,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
                 audio_in_enabled=True,
                 audio_out_enabled=True,
                 add_wav_header=False,
-                vad_enabled=True,  # Activamos VAD para mejor detección de voz
-                vad_audio_passthrough=True,
+                # Eliminamos los parámetros deprecados de VAD
                 serializer=TwilioFrameSerializer(stream_sid),
             ),
         )
@@ -119,9 +118,9 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
 
         audiobuffer = AudioBufferProcessor(user_continuous_stream=not testing)
 
-        # Configuración del analizador VAD para mejor detección de voz en español
+        # Configuración correcta del analizador VAD para Silero
+        # Nota: SileroVADAnalyzer no acepta 'threshold' como parámetro
         vad_analyzer = SileroVADAnalyzer(
-            threshold=0.5,
             sampling_rate=8000,
             min_speech_duration_ms=250,
             min_silence_duration_ms=500,
@@ -130,7 +129,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         pipeline = Pipeline(
             [
                 transport.input(),
-                vad_analyzer,  # Añadimos el analizador VAD
+                vad_analyzer,  # Añadimos el analizador VAD correctamente configurado
                 stt,
                 context_aggregator.user(),
                 llm,
