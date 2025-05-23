@@ -1,9 +1,3 @@
-#
-# Copyright (c) 2025, Daily
-#
-# SPDX-License-Identifier: BSD 2-Clause License
-#
-
 import datetime
 import io
 import os
@@ -72,7 +66,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         )
 
         llm = OpenAILLMService(
-            api_key=os.getenv("OPENAI_API_KEY"), 
+            api_key=os.getenv("OPENAI_API_KEY"),
             model="gpt-4o-mini",
             temperature=0.7,
         )
@@ -98,7 +92,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
                 Eres Juan, asesor de facturación eléctrica. Hablas español profesional y empático.
                 Tu trabajo es verificar datos del cliente Pedro Martinez Garcia de Madrid para actualizar su convenio eléctrico.
                 No vendes nada, solo actualizas información. Mantén respuestas cortas y claras.
-
+                
                 IMPORTANTE:
                 - SIEMPRE responde en español.
                 - Usa frases cortas y naturales.
@@ -140,7 +134,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
                 logger.info("Cliente conectado. Iniciando grabación y presentación.")
                 await audiobuffer.start_recording()
                 messages.append({
-                    "role": "system", 
+                    "role": "system",
                     "content": "Preséntate al usuario en español. Di: 'Hola, soy Juan, asesor de facturación eléctrica. ¿En qué puedo ayudarte hoy?'"
                 })
                 await task.queue_frames([context_aggregator.user().get_context_frame()])
@@ -157,12 +151,6 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         async def on_audio_data(buffer, audio, sample_rate, num_channels):
             server_name = f"server_{websocket_client.client.port}"
             await save_audio(server_name, audio, sample_rate, num_channels)
-
-        @stt.event_handler("on_transcription")
-        async def on_transcription(service, text, metadata=None):
-            logger.info(f"Transcripción Deepgram: {text}")
-            if metadata:
-                logger.debug(f"Metadata Deepgram: {metadata}")
 
         @llm.event_handler("on_response")
         async def on_llm_response(service, response):
