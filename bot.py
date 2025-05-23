@@ -61,8 +61,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             audio_in_enabled=True,
             audio_out_enabled=True,
             add_wav_header=False,
-            vad_enabled=True,
-            vad_analyzer=SileroVADAnalyzer(),
+            vad_enabled=False,
             vad_audio_passthrough=True,
             serializer=TwilioFrameSerializer(stream_sid),
         ),
@@ -70,7 +69,11 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
 
     llm = OpenAILLMService(api_key=os.getenv("OPENAI_API_KEY"), model="gpt-4o-mini")
 
-    stt = DeepgramSTTService(api_key=os.getenv("DEEPGRAM_API_KEY"), audio_passthrough=True)
+    stt = DeepgramSTTService(
+        api_key=os.getenv("DEEPGRAM_API_KEY"), 
+        audio_passthrough=True,
+        language="es"
+    )
 
     tts = ElevenLabsTTSService(
             api_key=os.getenv("ELEVEN_API_KEY"),
@@ -80,7 +83,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     messages = [
         {
             "role": "system",
-            "content": "Eres Juan. Hablas español. Di hola y pregunta el nombre.",
+            "content": "Eres Juan, asesor de facturación eléctrica. Hablas español profesional y empático. Tu trabajo es verificar datos del cliente Pedro Martinez Garcia de Madrid para actualizar su convenio eléctrico. No vendes nada, solo actualizas información. Mantén respuestas cortas y claras.",
         },
     ]
 
