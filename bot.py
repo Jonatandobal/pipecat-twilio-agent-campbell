@@ -12,7 +12,8 @@ import wave
 
 import aiofiles
 from dotenv import load_dotenv
-from fastapi import WebSocket
+from fastapi import FastAPI, WebSocket
+from fastapi.responses import Response
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -32,17 +33,15 @@ from pipecat.transports.network.fastapi_websocket import (
 
 load_dotenv(override=True)
 
-# Configuración de logging
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 logger.add("pipecat_debug.log", rotation="10 MB", level="DEBUG")
 
+app = FastAPI()
 
 async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_channels: int):
     if len(audio) > 0:
-        filename = (
-            f"{server_name}_recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
-        )
+        filename = f"{server_name}_recording_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.wav"
         with io.BytesIO() as buffer:
             with wave.open(buffer, "wb") as wf:
                 wf.setsampwidth(2)
@@ -55,12 +54,10 @@ async def save_audio(server_name: str, audio: bytes, sample_rate: int, num_chann
     else:
         logger.info("No audio data to save")
 
-
 async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     try:
         logger.info(f"Iniciando sesión con stream_sid: {stream_sid}")
-        
-        # Configuración del transporte siguiendo el ejemplo funcional
+
         transport = FastAPIWebsocketTransport(
             websocket=websocket_client,
             params=FastAPIWebsocketParams(
@@ -74,14 +71,12 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             ),
         )
 
-        # Configuración del modelo LLM
         llm = OpenAILLMService(
             api_key=os.getenv("OPENAI_API_KEY"), 
             model="gpt-4o-mini",
             temperature=0.7,
         )
 
-        # Configuración de Deepgram STT para español
         stt = DeepgramSTTService(
             api_key=os.getenv("DEEPGRAM_API_KEY"),
             language="es",
@@ -89,15 +84,13 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             audio_passthrough=True,
         )
 
-        # Configuración de TTS
         tts = ElevenLabsTTSService(
             api_key=os.getenv("ELEVEN_API_KEY"),
             voice_id=os.getenv("ELEVEN_VOICE_ID"),
-            model_id="eleven_multilingual_v2",  # Modelo multilingüe para mejor español
+            model_id="eleven_multilingual_v2",
             optimize_streaming_latency=4,
         )
 
-        # Mensajes del sistema en español
         messages = [
             {
                 "role": "system",
@@ -105,7 +98,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
                 Eres Juan, asesor de facturación eléctrica. Hablas español profesional y empático.
                 Tu trabajo es verificar datos del cliente Pedro Martinez Garcia de Madrid para actualizar su convenio eléctrico.
                 No vendes nada, solo actualizas información. Mantén respuestas cortas y claras.
-                
+
                 IMPORTANTE:
                 - SIEMPRE responde en español.
                 - Usa frases cortas y naturales.
@@ -121,19 +114,16 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
 
         audiobuffer = AudioBufferProcessor(user_continuous_stream=not testing)
 
-        # Configuración del pipeline siguiendo el ejemplo funcional
-        pipeline = Pipeline(
-            [
-                transport.input(),
-                stt,
-                context_aggregator.user(),
-                llm,
-                tts,
-                transport.output(),
-                audiobuffer,
-                context_aggregator.assistant(),
-            ]
-        )
+        pipeline = Pipeline([
+            transport.input(),
+            stt,
+            context_aggregator.user(),
+            llm,
+            tts,
+            transport.output(),
+            audiobuffer,
+            context_aggregator.assistant(),
+        ])
 
         task = PipelineTask(
             pipeline,
@@ -149,13 +139,10 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             try:
                 logger.info("Cliente conectado. Iniciando grabación y presentación.")
                 await audiobuffer.start_recording()
-                
-                # Mensaje inicial en español
                 messages.append({
                     "role": "system", 
                     "content": "Preséntate al usuario en español. Di: 'Hola, soy Juan, asesor de facturación eléctrica. ¿En qué puedo ayudarte hoy?'"
                 })
-                
                 await task.queue_frames([context_aggregator.user().get_context_frame()])
                 logger.info("Mensaje inicial enviado correctamente")
             except Exception as e:
@@ -171,7 +158,6 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             server_name = f"server_{websocket_client.client.port}"
             await save_audio(server_name, audio, sample_rate, num_channels)
 
-        # Manejador de eventos para depuración de Deepgram STT
         @stt.event_handler("on_transcription")
         async def on_transcription(service, text, metadata=None):
             logger.info(f"Transcripción Deepgram: {text}")
@@ -189,12 +175,28 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         runner = PipelineRunner(handle_sigint=False, force_gc=True)
         logger.info("Iniciando ejecución del pipeline")
         await runner.run(task)
-        
+
     except Exception as e:
         logger.error(f"Error en run_bot: {str(e)}")
-        # Intentamos cerrar la conexión de forma limpia
         try:
             if 'task' in locals():
                 await task.cancel()
         except:
             pass
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    await run_bot(websocket_client=websocket, stream_sid="sid-desde-twilio", testing=False)
+
+@app.get("/twiml")
+async def serve_twiml():
+    twiml = """
+    <Response>
+      <Start>
+        <Stream url="wss://pipecat-twilio-agent-campbell-production.up.railway.app/ws"/>
+      </Start>
+      <Say voice="Polly.Conchita" language="es-ES">Conectando con el asistente virtual.</Say>
+    </Response>
+    """
+    return Response(content=twiml, media_type="application/xml")
