@@ -31,9 +31,11 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
     Función principal que ejecuta el bot de voz para Twilio
     """
     try:
-        # Inicializar el serializador de Twilio con el stream SID
+        # Inicializar el serializador de Twilio con todos los parámetros necesarios
         serializer = TwilioFrameSerializer(
             stream_sid=stream_sid,
+            account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
+            auth_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
         )
 
         # Crear el transporte WebSocket de FastAPI
@@ -62,6 +64,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         tts = ElevenLabsTTSService(
             api_key=os.getenv("ELEVEN_API_KEY"),
             voice_id=os.getenv("ELEVEN_VOICE_ID", "pNInz6obpgDQGcFmaJgB"),  # Adam voice por defecto
+            output_format="ulaw_8000",  # Mejor formato para Twilio
         )
 
         # Crear el contexto inicial de la conversación
@@ -98,11 +101,11 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
             logger.info("Client connected to Twilio bot")
-            # Enviar mensaje de bienvenida
+            # Enviar mensaje de bienvenida más claro
             messages = [
                 {
-                    "role": "system",
-                    "content": "The user just connected. Greet them as Tasha and ask how you can help them today."
+                    "role": "user",
+                    "content": "Hello"
                 }
             ]
             await task.queue_frames([LLMMessagesFrame(messages)])
