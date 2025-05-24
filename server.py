@@ -144,22 +144,26 @@ async def websocket_endpoint(websocket: WebSocket):
         await websocket.accept()
         logger.info("WebSocket connection accepted")
         
+        # Leer los primeros dos mensajes de Twilio
         start_data = websocket.iter_text()
         first_message = await start_data.__anext__()
         logger.info(f"Received first message: {first_message}")
         
-        # Parse the second message which contains the stream SID
-        try:
-            call_data = json.loads(await start_data.__anext__())
-            logger.info(f"Call data: {call_data}")
-            stream_sid = call_data["start"]["streamSid"]
-            logger.info(f"Stream SID: {stream_sid}")
-        except Exception as e:
-            logger.error(f"Error parsing call data: {str(e)}")
-            stream_sid = "unknown_sid"
+        # El segundo mensaje contiene los datos importantes
+        second_message = await start_data.__anext__()
+        call_data = json.loads(second_message)
+        logger.info(f"Call data: {call_data}")
         
-        # Run the bot
-        await run_bot(websocket, stream_sid, app.state.testing)
+        # Extraer tanto stream_sid como call_sid
+        stream_sid = call_data["start"]["streamSid"]
+        call_sid = call_data["start"]["callSid"]
+        
+        logger.info(f"Stream SID: {stream_sid}")
+        logger.info(f"Call SID: {call_sid}")
+        
+        # Ejecutar el bot con ambos IDs
+        await run_bot(websocket, stream_sid, call_sid, app.state.testing)
+        
     except Exception as e:
         logger.error(f"Error in WebSocket endpoint: {str(e)}", exc_info=True)
 
