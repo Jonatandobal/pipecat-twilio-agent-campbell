@@ -1,10 +1,11 @@
 import os
 import sys
 import json
+import asyncio
 from loguru import logger
 from fastapi import WebSocket
 
-from pipecat.frames.frames import LLMMessagesFrame, EndFrame
+from pipecat.frames.frames import LLMMessagesFrame, EndFrame, TextFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.runner import PipelineRunner
 from pipecat.pipeline.task import PipelineParams, PipelineTask
@@ -26,7 +27,7 @@ from pipecat.serializers.twilio import TwilioFrameSerializer
 logger.remove(0)
 logger.add(sys.stderr, level="DEBUG")
 
-async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
+async def run_bot(websocket_client: WebSocket, stream_sid: str, call_sid: str, testing: bool):
     """
     Función principal que ejecuta el bot de voz para Twilio
     """
@@ -34,6 +35,7 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         # Inicializar el serializador de Twilio con todos los parámetros necesarios
         serializer = TwilioFrameSerializer(
             stream_sid=stream_sid,
+            call_sid=call_sid,
             account_sid=os.getenv("TWILIO_ACCOUNT_SID", ""),
             auth_token=os.getenv("TWILIO_AUTH_TOKEN", ""),
         )
@@ -64,22 +66,21 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
         tts = ElevenLabsTTSService(
             api_key=os.getenv("ELEVEN_API_KEY"),
             voice_id=os.getenv("ELEVEN_VOICE_ID", "pNInz6obpgDQGcFmaJgB"),  # Adam voice por defecto
-            output_format="ulaw_8000",  # Mejor formato para Twilio
         )
 
         # Crear el contexto inicial de la conversación
         messages = [
             {
                 "role": "system",
-                "content": """You are Tasha, a helpful AI assistant. You are speaking on a phone call.
+                "content": """You are Tasha, a helpful AI assistant speaking on a phone call.
                 
                 Keep your responses:
+                - Very brief (1-2 sentences max)
                 - Conversational and natural
-                - Brief and to the point
-                - Friendly and professional
+                - Clear and easy to understand over the phone
                 
-                You can help with general questions, provide information, and have casual conversations.
-                Remember you're on a phone call, so speak clearly and don't use special formatting.""",
+                Start by greeting the caller and asking how you can help them.
+                Wait for them to speak before responding.""",
             },
         ]
 
@@ -97,18 +98,24 @@ async def run_bot(websocket_client: WebSocket, stream_sid: str, testing: bool):
             context_aggregator.assistant(),  # Agregar respuesta del asistente al contexto
         ])
 
+        # Variable para controlar si ya saludamos
+        has_greeted = False
+
         # Configurar manejadores de eventos
         @transport.event_handler("on_client_connected")
         async def on_client_connected(transport, client):
+            nonlocal has_greeted
             logger.info("Client connected to Twilio bot")
-            # Enviar mensaje de bienvenida más claro
-            messages = [
-                {
-                    "role": "user",
-                    "content": "Hello"
-                }
-            ]
-            await task.queue_frames([LLMMessagesFrame(messages)])
+            
+            # Esperar un poco para que la conexión se estabilice
+            await asyncio.sleep(3)
+            
+            if not has_greeted:
+                # Enviar saludo inicial más directo
+                greeting = "Hello! I'm Tasha, your AI assistant. How can I help you today?"
+                await task.queue_frames([TextFrame(greeting)])
+                has_greeted = True
+                logger.info(f"Sent greeting: {greeting}")
 
         @transport.event_handler("on_client_disconnected")
         async def on_client_disconnected(transport, client):
